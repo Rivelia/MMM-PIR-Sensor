@@ -1,0 +1,10 @@
+body {
+	visibility: visible;
+	opacity: 1;
+	transition: visibility 0.5s, opacity 0.5s linear;
+}
+
+.screenHide {
+	visibility: hidden;
+	opacity: 0;
+}

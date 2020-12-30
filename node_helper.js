@@ -25,20 +25,24 @@ module.exports = NodeHelper.create({
 			return;
 		}
 		// If relays are being used in place of HDMI
-		if (this.config.relayPin !== false) {
+		if (this.config.relayPin) {
 			this.relay.writeSync(this.config.relayState);
-		} else if (this.config.relayPin === false) {
+		} else {
 			// Check if hdmi output is already on
 			const self = this;
-			exec('/usr/bin/vcgencmd display_power').stdout.on('data', function (
-				data
-			) {
-				if (data.indexOf('display_power=0') === 0) {
-					exec('/usr/bin/vcgencmd display_power 1', null);
+			exec('/usr/bin/vcgencmd display_power').stdout.on(
+				'data',
+				function (data) {
+					if (data.indexOf('display_power=0') === 0) {
+						exec('/usr/bin/vcgencmd display_power 1', null);
+					}
+					if (self.config.supportCEC)
+						exec("echo 'on 0' | cec-client -s -d 1");
 				}
-				if (self.config.supportCEC)
-					exec("echo 'on 0' | cec-client -s -d 1");
-			});
+			);
+			if (this.config.hideModules) {
+				this.sendSocketNotification('SCREEN_SHOW');
+			}
 		}
 		if (this.briefHDMIWakeupInterval) {
 			clearInterval(this.briefHDMIWakeupInterval);
@@ -59,39 +63,70 @@ module.exports = NodeHelper.create({
 			return;
 		}
 		// If relays are being used in place of HDMI
-		if (this.config.relayPin !== false) {
+		if (this.config.relayPin) {
 			this.relay.writeSync((this.config.relayState + 1) % 2);
-		} else if (this.config.relayPin === false) {
-			if (this.config.supportCEC)
-				exec("echo 'standby 0' | cec-client -s -d 1");
-			exec('/usr/bin/vcgencmd display_power 0', null);
+		} else {
+			if (this.config.hideModules) {
+				this.sendSocketNotification('SCREEN_HIDE');
+			} else {
+				if (this.config.supportCEC)
+					exec("echo 'standby 0' | cec-client -s -d 1");
+				exec('/usr/bin/vcgencmd display_power 0', null);
+
+				if (
+					this.config.preventHDMITimeout > 0 &&
+					this.config.preventHDMITimeout < 10
+				) {
+					const self = this;
+					self.briefHDMIWakeupInterval = setInterval(function () {
+						self.briefHDMIWakeup();
+					}, self.config.preventHDMITimeout * 1000 * 60);
+				}
+			}
 		}
-		if (
-			this.config.preventHDMITimeout > 0 &&
-			this.config.preventHDMITimeout < 10
-		) {
-			const self = this;
-			self.briefHDMIWakeupInterval = setInterval(function () {
-				self.briefHDMIWakeup();
-			}, self.config.preventHDMITimeout * 1000 * 60);
+	},
+
+	clearMonitorTimeouts: function () {
+		if (this.activateMonitorTimeout) {
+			clearTimeout(this.activateMonitorTimeout);
 		}
+		if (this.deactivateMonitorTimeout) {
+			clearTimeout(this.deactivateMonitorTimeout);
+		}
+	},
+
+	startActivateMonitorTimeout: function () {
+		this.clearMonitorTimeouts();
+		this.activateMonitorTimeout = setTimeout(() => {
+			console.log('activating monitor');
+			this.activateMonitor();
+		}, this.config.powerSavingOnDelay * 1000);
+	},
+
+	startDeactivateMonitorTimeout: function () {
+		this.clearMonitorTimeouts();
+		this.deactivateMonitorTimeout = setTimeout(() => {
+			console.log('deactivating monitor');
+			this.deactivateMonitor();
+		}, this.config.powerSavingOffDelay * 1000);
 	},
 
 	briefHDMIWakeup: function () {
 		const self = this;
-		exec('/usr/bin/vcgencmd display_power').stdout.on('data', function (
-			data
-		) {
-			if (data.indexOf('display_power=0') === 0) {
-				exec('/usr/bin/vcgencmd display_power 1', null);
+		exec('/usr/bin/vcgencmd display_power').stdout.on(
+			'data',
+			function (data) {
+				if (data.indexOf('display_power=0') === 0) {
+					exec('/usr/bin/vcgencmd display_power 1', null);
 
-				self.briefHDMIWakeupPhase2Timeout = setTimeout(function () {
-					// set a short delay for the monitor to sense the input
-					self.briefHDMIWakeupPhase2Timeout = null;
-					exec('/usr/bin/vcgencmd display_power 0', null);
-				}, 1000);
+					self.briefHDMIWakeupPhase2Timeout = setTimeout(function () {
+						// set a short delay for the monitor to sense the input
+						self.briefHDMIWakeupPhase2Timeout = null;
+						exec('/usr/bin/vcgencmd display_power 0', null);
+					}, 1000);
+				}
 			}
-		});
+		);
 	},
 
 	// Subclass socketNotificationReceived received.
@@ -101,10 +136,7 @@ module.exports = NodeHelper.create({
 			this.config = payload;
 
 			if (self.config.powerSaving) {
-				self.deactivateMonitorTimeout = setTimeout(function () {
-					// Set the timeout before movement is identified
-					self.deactivateMonitor();
-				}, self.config.powerSavingOffDelay * 1000);
+				self.startDeactivateMonitorTimeout();
 			}
 
 			// Setup for relay pin
@@ -177,31 +209,25 @@ module.exports = NodeHelper.create({
 			const valueOn = this.config.sensorState;
 			const valueOff = (this.config.sensorState + 1) % 2;
 
+			this.lastPirState = valueOff;
+
 			// Detected movement
 			this.pir.watch(function (err, value) {
-				console.log(`received ${value}`);
+				self.lastPirState = value;
 				if (value == valueOn) {
 					self.sendSocketNotification('USER_PRESENCE', true);
 					if (!self.config.powerSaving) {
 						return;
 					}
 
-					clearTimeout(self.deactivateMonitorTimeout);
-					self.activateMonitorTimeout = setTimeout(function () {
-						console.log('activating monitor');
-						self.activateMonitor();
-					}, self.config.powerSavingOnDelay * 1000);
+					self.startActivateMonitorTimeout();
 				} else if (value == valueOff) {
 					self.sendSocketNotification('USER_PRESENCE', false);
 					if (!self.config.powerSaving) {
 						return;
 					}
 
-					clearTimeout(self.activateMonitorTimeout);
-					self.deactivateMonitorTimeout = setTimeout(function () {
-						console.log('deactivating monitor');
-						self.deactivateMonitor();
-					}, self.config.powerSavingOffDelay * 1000);
+					self.startDeactivateMonitorTimeout();
 				}
 			});
 
@@ -216,7 +242,11 @@ module.exports = NodeHelper.create({
 				}, 20000);
 			}
 		} else if (notification === 'SCREEN_WAKEUP') {
+			this.clearMonitorTimeouts();
 			this.activateMonitor();
+			if (this.lastPirState != this.config.sensorState) {
+				this.startDeactivateMonitorTimeout();
+			}
 		}
 	},
 });

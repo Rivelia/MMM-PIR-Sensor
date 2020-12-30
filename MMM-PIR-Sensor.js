@@ -28,12 +28,13 @@ Module.register('MMM-PIR-Sensor', {
 		presenceOffIndicator: null,
 		presenceOffIndicatorColor: 'dimgray',
 		runSimulator: false,
+		hideModules: false,
 	},
 
 	userPresence: false,
 
 	getStyles: function () {
-		return ['font-awesome.css'];
+		return ['font-awesome.css', 'MMM-PIR-Sensor.css'];
 	},
 
 	getDom: function () {
@@ -62,27 +63,36 @@ Module.register('MMM-PIR-Sensor', {
 
 	// Override socket notification handler.
 	socketNotificationReceived: function (notification, payload) {
-		if (notification === 'USER_PRESENCE') {
-			this.userPresence = payload;
-			this.sendNotification(notification, payload);
-			if (
-				payload === false &&
-				this.config.powerSavingNotification === true
-			) {
-				this.sendNotification('SHOW_ALERT', {
-					type: 'notification',
-					message: this.config.powerSavingMessage,
-				});
-			}
-			this.updateDom();
-		} else if (notification === 'SHOW_ALERT') {
-			this.sendNotification(notification, payload);
+		switch (notification) {
+			case 'USER_PRESENCE':
+				this.userPresence = payload;
+				this.sendNotification(notification, payload);
+				if (
+					payload === false &&
+					this.config.powerSavingNotification === true
+				) {
+					this.sendNotification('SHOW_ALERT', {
+						type: 'notification',
+						message: this.config.powerSavingMessage,
+					});
+				}
+				this.updateDom();
+				break;
+			case 'SHOW_ALERT':
+				this.sendNotification(notification, payload);
+				break;
+			case 'SCREEN_HIDE':
+				document.body.classList.add('screenHide');
+				break;
+			case 'SCREEN_SHOW':
+				document.body.classList.remove('screenHide');
+				break;
 		}
 	},
 
 	notificationReceived: function (notification, payload) {
 		if (notification === 'SCREEN_WAKEUP') {
-			this.sendNotification(notification, payload);
+			this.sendSocketNotification(notification, payload);
 		}
 	},
 
