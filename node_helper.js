@@ -28,20 +28,21 @@ module.exports = NodeHelper.create({
 		if (this.config.relayPin) {
 			this.relay.writeSync(this.config.relayState);
 		} else {
-			// Check if hdmi output is already on
-			const self = this;
-			exec('/usr/bin/vcgencmd display_power').stdout.on(
-				'data',
-				function (data) {
-					if (data.indexOf('display_power=0') === 0) {
-						exec('/usr/bin/vcgencmd display_power 1', null);
-					}
-					if (self.config.supportCEC)
-						exec("echo 'on 0' | cec-client -s -d 1");
-				}
-			);
 			if (this.config.hideModules) {
 				this.sendSocketNotification('SCREEN_SHOW');
+			} else {
+				// Check if hdmi output is already on
+				const self = this;
+				exec('/usr/bin/vcgencmd display_power').stdout.on(
+					'data',
+					function (data) {
+						if (data.indexOf('display_power=0') === 0) {
+							exec('/usr/bin/vcgencmd display_power 1', null);
+						}
+						if (self.config.supportCEC)
+							exec("echo 'on 0' | cec-client -s -d 1");
+					}
+				);
 			}
 		}
 		if (this.briefHDMIWakeupInterval) {
@@ -98,7 +99,6 @@ module.exports = NodeHelper.create({
 	startActivateMonitorTimeout: function () {
 		this.clearMonitorTimeouts();
 		this.activateMonitorTimeout = setTimeout(() => {
-			console.log('activating monitor');
 			this.activateMonitor();
 		}, this.config.powerSavingOnDelay * 1000);
 	},
@@ -106,7 +106,6 @@ module.exports = NodeHelper.create({
 	startDeactivateMonitorTimeout: function () {
 		this.clearMonitorTimeouts();
 		this.deactivateMonitorTimeout = setTimeout(() => {
-			console.log('deactivating monitor');
 			this.deactivateMonitor();
 		}, this.config.powerSavingOffDelay * 1000);
 	},
