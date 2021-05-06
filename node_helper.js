@@ -196,9 +196,16 @@ module.exports = NodeHelper.create({
 					}
 				});
 			} else {
-				exec('/usr/bin/vcgencmd display_power 1', null); // Mirror could have stopped with HDMI off. Reset at startup
-				if (this.config.supportCEC)
-					exec("echo 'on o' | cec-client -s -d 1");
+				exec('/usr/bin/vcgencmd display_power').stdout.on(
+					'data',
+					function (data) {
+						if (data.indexOf('display_power=0') === 0) {
+							exec('/usr/bin/vcgencmd display_power 1', null);
+						}
+						if (self.config.supportCEC)
+							exec("echo 'on 0' | cec-client -s -d 1");
+					}
+				);
 			}
 
 			// Setup for sensor pin
@@ -244,6 +251,7 @@ module.exports = NodeHelper.create({
 			this.clearMonitorTimeouts();
 			this.activateMonitor();
 			if (this.lastPirState != this.config.sensorState) {
+				this.lastPirState = (this.config.sensorState + 1) % 2;
 				this.startDeactivateMonitorTimeout();
 			}
 		}
